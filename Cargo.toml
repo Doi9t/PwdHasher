@@ -1,0 +1,8 @@
+[package]
+name = "PwdHasher"
+version = "0.0.1"
+authors = [ "Yannick Watier <watier.yannick@gmail.com>" ]
+
+[dependencies]
+rust-crypto = "^0.2"
+rustc-serialize = "^0.3"
