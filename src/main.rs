@@ -36,7 +36,7 @@ struct RecivedPasswordStruct {
 	pwd: String,
 	site: String,
 	choice: u8,
-	max_length: u8
+	max_length: u16
 }
 
 #[derive(RustcDecodable, RustcEncodable)]
@@ -61,8 +61,12 @@ fn main() {
 	let mut argument_site = "".to_string();
 	let mut is_argument_pattern = false;
 	let mut argument_pattern = 0;
+	let mut is_argument_max_length = false;
+	let mut argument_max_length: u16 = 0;
 	let args: Vec<String> = env::args().collect();
 	let args_len = args.len();
+
+	let mut recived_password_struct: RecivedPasswordStruct;
 
 	for argument_index in 1..args_len {
 		let current_argument = args.get(argument_index).unwrap();
@@ -72,13 +76,13 @@ fn main() {
 			println!("{:?}", "There's two way to generate a password");
 			println!("{:?}", "1:");
 			println!("{:?}", "-jsonB64");
-			println!("{:?}", "2: (Theses three parameters are MANDATORY");
-			println!("{:?}", "-password AND -site AND -pattern");
+			println!("{:?}", "2: (Theses four parameters are MANDATORY");
+			println!("{:?}", "-password AND -site AND -pattern AND -max_length");
 			exit(0);
 		}
 
 		if args_len > argument_index + 1 {
-			let argument = args.get(argument_index + 1).unwrap().clone();
+			let argument: String = args.get(argument_index + 1).unwrap().clone();
 
 			if "-jsonB64" == current_argument {
 				is_argument_json_b64 = true;
@@ -92,39 +96,41 @@ fn main() {
 			} else if "-pattern" == current_argument {
 				is_argument_pattern = true;
 				argument_pattern = argument.chars().nth(0).unwrap() as u8;
+			} else if "-max_length" == current_argument {
+				is_argument_max_length = true;
+				argument_max_length = argument.parse::<u16>().unwrap();
 			}
 		}
 	}
 
 	if is_argument_json_b64 {
 		argument_json = decode_b64(argument_json);
-	}
-
-	if (is_argument_json_b64) {
-		let recived_password_struct: RecivedPasswordStruct = json::decode(&argument_json).unwrap();
-		argument_password = recived_password_struct.pwd;
-		argument_site = recived_password_struct.site;
-		argument_pattern = recived_password_struct.choice;
-	} else if !is_argument_site || !is_argument_pattern || !is_argument_password { //Make sure that the required parameters are initialized if not json
+		recived_password_struct = json::decode(&argument_json).unwrap();
+	} else if !is_argument_site || !is_argument_pattern || !is_argument_password || !is_argument_max_length { //Make sure that the required parameters are initialized if not json
 		panic!("{:?}", "All required parameters(s) must be set !");
+	} else {
+		recived_password_struct = RecivedPasswordStruct { pwd: argument_password.clone(), site: argument_site.clone(), choice: argument_pattern, max_length: argument_max_length };
 	}
 
-	print!("{}", generate_sentpasswordstruct_json(generate_password(argument_password, argument_site, argument_pattern)));
+	print!("{}", generate_sentpasswordstruct_json(generate_password(recived_password_struct)));
 }
 
 //Generate the hash based on the received parameters
-fn generate_password(pwd: String, site: String, choice: u8) -> String {
-	let hashed: String = generate_hexed_hash_bytes(pwd + &site);
+fn generate_password(recv_struct: RecivedPasswordStruct) -> String {
+	let choice: u8 = recv_struct.choice;
+	let max_length: u16 = recv_struct.max_length;
+
+	let hashed: String = generate_hexed_hash_bytes(recv_struct.pwd + &recv_struct.site);
 	let mut final_hash: String = "".to_string();
 
-	if(choice == 0 || choice == 1) {
+	if choice == 0 || choice == 1 {
 
 		let mut index:u8 = 0;
 		for mut b in hashed.chars() {
 			let b_as_uint: u8 = b as u8;
 
 			if is_alphabet_character(b_as_uint) {
-				if(index & 1 == choice) {
+				if index & 1 == choice {
 					b = invert_case(b_as_uint) as char;
 				} 
 
@@ -133,6 +139,10 @@ fn generate_password(pwd: String, site: String, choice: u8) -> String {
 
 			final_hash.push(b);
 		}
+	}
+
+	if max_length > 0 {
+		final_hash = final_hash[0..max_length as usize].to_string();
 	}
 
 	return final_hash;
@@ -153,17 +163,6 @@ fn decode_b64(json: String) -> String {
 
 fn vec_to_string(value: Vec<u8>) -> String {
 	return str::from_utf8(&value).unwrap().to_string();
-}
-
-//Return the real bytes
-fn generate_raw_hash_bytes(entered_password: String) -> Vec<u8> {
-	let mut sha = Sha512::new();
-	sha.input_str(&entered_password);
-
-	let mut bytes = vec![0; 64];
-	sha.result(bytes.as_mut_slice());
-
-	return bytes;
 }
 
 //Return the hex values of the hash
@@ -195,5 +194,5 @@ fn invert_case(case : u8) -> u8  {
 }
 
 fn is_alphabet_character(case : u8) -> bool {
-	return ((case >= 65 && case <= 90) || (case >= 97 && case <= 122));
+	return (case >= 65 && case <= 90) || (case >= 97 && case <= 122);
 }
