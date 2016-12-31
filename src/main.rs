@@ -27,11 +27,16 @@ use rustc_serialize::base64;
 use rustc_serialize::base64::ToBase64;
 use rustc_serialize::base64::FromBase64;
 
+/*
+	0 = upper -> lower [AaAa...]
+	1 = lower -> upper [aAaA...]
+*/
 #[derive(RustcDecodable, RustcEncodable)]
 struct RecivedPasswordStruct {
 	pwd: String,
 	site: String,
-	choice: u8
+	choice: u8,
+	max_length: u8
 }
 
 #[derive(RustcDecodable, RustcEncodable)]
@@ -41,12 +46,13 @@ struct SentPasswordStruct {
 
 /*
 	Base64 struct example:
-		{ "pwd":"John", "site":"google.com", "choice":15 }
-		eyAicHdkIjoiSm9obiIsICJzaXRlIjoiZ29vZ2xlLmNvbSIsICJjaG9pY2UiOjE1IH0=
-*/
+		{ "pwd":"John", "site":"google.com", "choice":0, "max_length":40 }
+		eyAicHdkIjoiSm9obiIsICJzaXRlIjoiZ29vZ2xlLmNvbSIsICJjaG9pY2UiOjAsICJtYXhfbGVuZ3RoIjo0MCB9
 
+		{ "pwd":"John", "site":"google.com", "choice":1, "max_length":40 }
+		eyAicHdkIjoiSm9obiIsICJzaXRlIjoiZ29vZ2xlLmNvbSIsICJjaG9pY2UiOjEsICJtYXhfbGVuZ3RoIjo0MCB9
+*/
 fn main() {
-	let mut is_argument_json = false;
 	let mut is_argument_json_b64 = false;
 	let mut argument_json = "".to_string();
 	let mut is_argument_password = false;
@@ -54,7 +60,7 @@ fn main() {
 	let mut is_argument_site = false;
 	let mut argument_site = "".to_string();
 	let mut is_argument_pattern = false;
-	let mut argument_pattern = "".to_string();
+	let mut argument_pattern = 0;
 	let args: Vec<String> = env::args().collect();
 	let args_len = args.len();
 
@@ -65,7 +71,7 @@ fn main() {
 			println!("{:?}", "***************** List of required parameters(s) *****************");
 			println!("{:?}", "There's two way to generate a password");
 			println!("{:?}", "1:");
-			println!("{:?}", "-json OR -jsonB64");
+			println!("{:?}", "-jsonB64");
 			println!("{:?}", "2: (Theses three parameters are MANDATORY");
 			println!("{:?}", "-password AND -site AND -pattern");
 			exit(0);
@@ -73,10 +79,8 @@ fn main() {
 
 		if args_len > argument_index + 1 {
 			let argument = args.get(argument_index + 1).unwrap().clone();
-			if "-json" == current_argument {
-				is_argument_json = true;
-				argument_json = argument;
-			} else if "-jsonB64" == current_argument {
+
+			if "-jsonB64" == current_argument {
 				is_argument_json_b64 = true;
 				argument_json = argument;
 			} else if "-password" == current_argument {
@@ -87,7 +91,7 @@ fn main() {
 				argument_site = argument;
 			} else if "-pattern" == current_argument {
 				is_argument_pattern = true;
-				argument_pattern = argument;
+				argument_pattern = argument.chars().nth(0).unwrap() as u8;
 			}
 		}
 	}
@@ -96,28 +100,47 @@ fn main() {
 		argument_json = decode_b64(argument_json);
 	}
 
-	if (is_argument_json_b64 || is_argument_json) {
-
+	if (is_argument_json_b64) {
 		let recived_password_struct: RecivedPasswordStruct = json::decode(&argument_json).unwrap();
-		let pwd: String = recived_password_struct.pwd;
-		let site: String = recived_password_struct.site;
-		let choice: u8 = recived_password_struct.choice;
-
-		let hashed: String = generate_hexed_hash_bytes(pwd + &site);
-
-
+		argument_password = recived_password_struct.pwd;
+		argument_site = recived_password_struct.site;
+		argument_pattern = recived_password_struct.choice;
 	} else if !is_argument_site || !is_argument_pattern || !is_argument_password { //Make sure that the required parameters are initialized if not json
 		panic!("{:?}", "All required parameters(s) must be set !");
-	} else { 
-		//is_argument_site, is_argument_pattern & is_argument_password are set
 	}
+
+	print!("{}", generate_sentpasswordstruct_json(generate_password(argument_password, argument_site, argument_pattern)));
+}
+
+//Generate the hash based on the received parameters
+fn generate_password(pwd: String, site: String, choice: u8) -> String {
+	let hashed: String = generate_hexed_hash_bytes(pwd + &site);
+	let mut final_hash: String = "".to_string();
+
+	if(choice == 0 || choice == 1) {
+
+		let mut index:u8 = 0;
+		for mut b in hashed.chars() {
+			let b_as_uint: u8 = b as u8;
+
+			if is_alphabet_character(b_as_uint) {
+				if(index & 1 == choice) {
+					b = invert_case(b_as_uint) as char;
+				} 
+
+				index += 1;
+			}
+
+			final_hash.push(b);
+		}
+	}
+
+	return final_hash;
 }
 
 fn generate_sentpasswordstruct_json(pwd : String) -> String {
-	let string_hexed_hash = generate_hexed_hash_bytes(pwd);
-
-	let sent_password_struct: SentPasswordStruct = SentPasswordStruct { pwd: string_hexed_hash.to_string()};
-	return json::encode(&sent_password_struct).unwrap().to_string();
+	let sent_password_struct: SentPasswordStruct = SentPasswordStruct { pwd: pwd};
+	return encode_str_to_b64(json::encode(&sent_password_struct).unwrap().to_string());
 }
 
 fn encode_str_to_b64(json: String) -> String {
@@ -158,8 +181,8 @@ fn generate_hexed_hash_bytes(entered_password: String) -> String {
 */
 fn invert_case(case : u8) -> u8  {
 
-	if !((case >= 65 && case <= 90) || (case >= 97 && case <= 122)) {
-		panic!("The parameter {} must be a letter !", case);
+	if !is_alphabet_character(case) {
+		return case;
 	}
 
 	let mut is_lowercase = 1;
@@ -169,4 +192,8 @@ fn invert_case(case : u8) -> u8  {
 	}
 
 	return case & 64 | is_lowercase << 5 | case & 31;
+}
+
+fn is_alphabet_character(case : u8) -> bool {
+	return ((case >= 65 && case <= 90) || (case >= 97 && case <= 122));
 }
