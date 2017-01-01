@@ -105,7 +105,7 @@ fn main() {
 				argument_site = argument;
 			} else if "-choice" == current_argument {
 				is_argument_choice = true;
-				argument_choice = argument.chars().nth(0).unwrap() as u8;
+				argument_choice = argument.parse::<u8>().unwrap();
 			} else if "-max_length" == current_argument {
 				is_argument_max_length = true;
 				argument_max_length = argument.parse::<u16>().unwrap();
